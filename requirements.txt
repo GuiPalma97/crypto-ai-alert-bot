@@ -1,0 +1,11 @@
+streamlit
+pandas
+numpy
+matplotlib
+scikit-learn
+tensorflow
+beautifulsoup4
+vaderSentiment
+schedule
+python-telegram-bot
+requests
