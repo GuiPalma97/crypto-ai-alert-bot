@@ -1,6 +1,6 @@
 python-telegram-bot==20.7
-ta
-matplotlib
 pandas
 requests
+matplotlib
+ta
 schedule
