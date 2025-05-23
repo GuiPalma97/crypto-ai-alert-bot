@@ -8,28 +8,18 @@ import threading
 from datetime import datetime
 from ta.momentum import RSIIndicator
 from ta.volatility import BollingerBands
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import Update
 from telegram.ext import (
-    ApplicationBuilder, CommandHandler, CallbackQueryHandler,
-    ContextTypes, MessageHandler, filters
+    ApplicationBuilder, CommandHandler, ContextTypes
 )
-import joblib
-from sklearn.tree import DecisionTreeClassifier  # só pra type hint, o treino fica separado
 
 # --- Configurações ---
-TOKEN = os.getenv('TELEGRAM_BOT_TOKEN') or '8123262775:AAHEv43aS9dK8jXSjINqhDXbqxlHAfn4aTw'
-CHAT_ID = os.getenv('TELEGRAM_CHAT_ID') or '7657570667'
+TOKEN = os.getenv('TELEGRAM_BOT_TOKEN') or 'SEU_TOKEN_AQUI'
+CHAT_ID = os.getenv('TELEGRAM_CHAT_ID') or 'SEU_CHAT_ID_AQUI'
 
 CRIPTO_LISTA = ['BTC-USDT', 'ETH-USDT', 'SOL-USDT', 'LDO-USDT', 'AAVE-USDT']
 INTERVALO = '1hour'  # '1min', '5min', '1hour', '1day', '1week'
 analise_ativa = False
-
-# --- Carrega modelo treinado ---
-try:
-    modelo = joblib.load('modelo_decision_tree.pkl')
-except Exception as e:
-    print("⚠️ Erro ao carregar modelo ML:", e)
-    modelo = None
 
 # --- Função para obter dados da KuCoin ---
 def obter_dados_kucoin(par, intervalo='1hour'):
@@ -54,8 +44,6 @@ def obter_dados_kucoin(par, intervalo='1hour'):
     bb = BollingerBands(df['close'])
     df['Upper'] = bb.bollinger_hband()
     df['Lower'] = bb.bollinger_lband()
-
-    df['pct_change'] = df['close'].pct_change()
 
     return df.dropna()
 
@@ -131,88 +119,6 @@ async def analisar_todas(bot):
         except Exception as e:
             await enviar_mensagem(bot, CHAT_ID, f"Erro na análise de {par}: {e}")
 
-# --- Comando /insights com ML integrado ---
-async def insights(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args:
-        await update.message.reply_text("❗ Use o comando com o par desejado. Exemplo:\n/insights BTC-USDT")
-        return
-
-    par = context.args[0].upper()
-    if par not in CRIPTO_LISTA:
-        await update.message.reply_text(f"⚠️ {par} não está na lista. Use /add para adicioná-la primeiro.")
-        return
-
-    await update.message.reply_text(f"🔍 Gerando insights para {par}...")
-
-    df = obter_dados_kucoin(par, INTERVALO)
-    if df is None or df.empty:
-        await update.message.reply_text(f"⚠️ Não foi possível obter dados para {par}.")
-        return
-
-    preco_atual = df['close'].iloc[-1]
-    rsi_atual = df['RSI'].iloc[-1]
-    upper = df['Upper'].iloc[-1]
-    lower = df['Lower'].iloc[-1]
-    volume_medio = df['volume'].rolling(window=10).mean().iloc[-1]
-    volume_atual = df['volume'].iloc[-1]
-
-    mov_volume = (volume_atual > 2 * volume_medio)
-
-    status_bollinger = (
-        "Preço acima da banda superior (possível sobrecompra)" if preco_atual > upper else
-        "Preço abaixo da banda inferior (possível sobrevenda)" if preco_atual < lower else
-        "Preço dentro das bandas de Bollinger"
-    )
-
-    if rsi_atual < 30:
-        status_rsi = "RSI indica sobrevenda (potencial oportunidade de compra)."
-    elif rsi_atual > 70:
-        status_rsi = "RSI indica sobrecompra (potencial momento de venda)."
-    else:
-        status_rsi = "RSI está neutro."
-
-    df['MA20'] = df['close'].rolling(window=20).mean()
-    ma20_atual = df['MA20'].iloc[-1]
-
-    tendencia = "indefinida"
-    if preco_atual > ma20_atual:
-        tendencia = "tendência de alta"
-    elif preco_atual < ma20_atual:
-        tendencia = "tendência de baixa"
-
-    variacao_ultimo = ((df['close'].iloc[-1] - df['close'].iloc[-2]) / df['close'].iloc[-2]) * 100
-
-    recomendacao = "Modelo ML não disponível."
-    if modelo is not None:
-        features = [[
-            preco_atual,
-            rsi_atual,
-            upper,
-            lower,
-            df['pct_change'].iloc[-1]
-        ]]
-        pred = modelo.predict(features)[0]
-        recomendacao = {
-            0: "Manter a posição.",
-            1: "Recomendação: Comprar.",
-            2: "Recomendação: Vender."
-        }.get(pred, "Sem recomendação.")
-
-    texto = (
-        f"📊 Insights para *{par}*\n\n"
-        f"💰 Preço atual: ${preco_atual:,.2f}\n"
-        f"🔻 Variação última hora: {variacao_ultimo:.2f}%\n"
-        f"📈 {status_rsi}\n"
-        f"📉 {status_bollinger}\n"
-        f"📊 Volume {'alto 📈' if mov_volume else 'normal'}\n"
-        f"📅 Média móvel 20 períodos indica *{tendencia}*.\n\n"
-        f"🤖 {recomendacao}"
-    )
-
-    grafico_path = gerar_grafico(df, par)
-
-    await update.message.reply_photo(photo=open(grafico_path, 'rb'), caption=texto, parse_mode='Markdown')
-
 # --- Comandos adicionais ---
 async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global CRIPTO_LISTA
@@ -277,7 +183,7 @@ def agendar_analise(application):
             application.create_task(analisar_todas(application.bot))
         else:
             print("Análise automática está desativada.")
-    schedule.every(1).hours.do(job)
+    schedule.every(30).minutes.do(job)
 
     while True:
         schedule.run_pending()
@@ -289,7 +195,6 @@ async def main():
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("stop", stop))
-    application.add_handler(CommandHandler("insights", insights))
     application.add_handler(CommandHandler("add", add))
     application.add_handler(CommandHandler("remove", remove))
     application.add_handler(CommandHandler("interval", interval))
@@ -301,14 +206,4 @@ async def main():
 
 if __name__ == "__main__":
     import asyncio
-    try:
-        asyncio.run(main())
-    except RuntimeError as e:
-        if str(e).startswith("This event loop is already running"):
-            # Executa de forma alternativa se já houver um loop ativo
-            loop = asyncio.get_event_loop()
-            loop.create_task(main())
-            loop.run_forever()
-        else:
-            raise
-
+    asyncio.run(main())
