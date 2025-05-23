@@ -10,7 +10,15 @@ from datetime import datetime
 from ta.momentum import RSIIndicator
 from ta.volatility import BollingerBands
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Updater, CommandHandler, CallbackContext, CallbackQueryHandler
+from telegram.ext import ApplicationBuilder, CommandHandler
+
+async def start(update, context):
+    await update.message.reply_text("Olá! Estou funcionando com PTB v20.7")
+
+app = ApplicationBuilder().token("SEU_TOKEN").build()
+app.add_handler(CommandHandler("start", start))
+app.run_polling()
+
 import os
 
 TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
