@@ -10,7 +10,10 @@ from datetime import datetime
 from ta.momentum import RSIIndicator
 from ta.volatility import BollingerBands
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Updater, CommandHandler, CallbackContext, CallbackQueryHandler
+from telegram.ext import ApplicationBuilder
+
+app = ApplicationBuilder().token(TOKEN).build()
+
 import os
 TOKEN = os.getenv('TOKEN')
 CHAT_ID = os.getenv('CHAT_ID')
@@ -19,7 +22,7 @@ CHAT_ID = os.getenv('CHAT_ID')
 CRIPTO_LISTA = ['BTC-USDT', 'ETH-USDT', 'SOL-USDT']
 INTERVALO = '1hour'  # opções: '1min', '5min', '1hour', '1day'
 analise_ativa = False
-
+app.run_polling()
 # --- Coletar dados da KuCoin ---
 def obter_dados_kucoin(par, intervalo='1hour'):
     url = f"https://api.kucoin.com/api/v1/market/candles?type={intervalo}&symbol={par}"
