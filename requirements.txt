@@ -5,5 +5,4 @@ schedule
 ta
 scikit-learn
 joblib
-python-telegram-bot==20.7
-
+python-telegram-bot==13.15
