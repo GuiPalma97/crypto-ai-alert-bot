@@ -22,18 +22,47 @@ logging.basicConfig(level=logging.INFO)
 client = Market()
 
 # Função para obter dados da KuCoin
-def obter_dados_kucoin(par, intervalo):
-    try:
-        raw = client.get_kline_market(par, intervalo, limit=100)
-        df = pd.DataFrame(raw, columns=["timestamp", "open", "close", "high", "low", "volume", "turnover"])
-        df = df.astype(float)
-        df["timestamp"] = pd.to_datetime(df["timestamp"], unit="s")
-        df.set_index("timestamp", inplace=True)
-        return df
-    except Exception as e:
-        print(f"Erro ao obter dados: {e}")
-        return None
+from kucoin.client import Market
 
+# --- Inicializar o cliente de mercado KuCoin ---
+kucoin_client = Market()
+
+# --- Coletar dados com o SDK da KuCoin ---
+def obter_dados_kucoin(par, intervalo='1hour'):
+    intervalo_map = {
+        '1min': '1min',
+        '5min': '5min',
+        '1hour': '1hour',
+        '1day': '1day',
+        '1week': '1week',
+    }
+
+    if intervalo not in intervalo_map:
+        intervalo = '1hour'
+
+    try:
+        candles = kucoin_client.get_kline(symbol=par, kline_type=intervalo_map[intervalo])
+
+        if not candles:
+            print(f"Nenhum dado de candle retornado para {par}")
+            return None
+
+        df = pd.DataFrame(candles, columns=['timestamp', 'open', 'close', 'high', 'low', 'volume', 'turnover'])
+        df = df.sort_values('timestamp')
+        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='s')
+        df.set_index('timestamp', inplace=True)
+        df = df.astype(float)
+
+        df['RSI'] = RSIIndicator(df['close']).rsi()
+        bb = BollingerBands(close=df['close'])
+        df['Upper'] = bb.bollinger_hband()
+        df['Lower'] = bb.bollinger_lband()
+
+        return df.dropna()
+
+    except Exception as e:
+        print(f"Erro ao obter dados da KuCoin para {par}: {e}")
+        return None
 # Função para gerar gráfico e RSI
 def gerar_grafico(df, par):
     rsi = RSIIndicator(df["close"])
