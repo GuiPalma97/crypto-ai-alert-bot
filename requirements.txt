@@ -1,8 +1,8 @@
 python-telegram-bot==20.7
-httpx==0.27.0
-pandas==2.2.2
-matplotlib==3.8.4
-numpy==1.26.4
-schedule==1.2.1
-ta==0.11.0
-requests==2.31.0
+pandas
+matplotlib
+numpy
+ta
+requests
+schedule
+
