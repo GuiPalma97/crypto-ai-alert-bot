@@ -1,4 +1,5 @@
 # --- Imports ---
+import os
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
@@ -10,19 +11,18 @@ from datetime import datetime
 from ta.momentum import RSIIndicator
 from ta.volatility import BollingerBands
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder
-
-app = ApplicationBuilder().token(TOKEN).build()
-
-import os
-TOKEN = os.getenv('TOKEN')
-CHAT_ID = os.getenv('CHAT_ID')
+from telegram.ext import (
+    ApplicationBuilder, CommandHandler, CallbackQueryHandler,
+    ContextTypes
+)
 
 # --- Configurações ---
+TOKEN = os.getenv('TOKEN')
+CHAT_ID = os.getenv('CHAT_ID')
 CRIPTO_LISTA = ['BTC-USDT', 'ETH-USDT', 'SOL-USDT']
 INTERVALO = '1hour'  # opções: '1min', '5min', '1hour', '1day'
 analise_ativa = False
-app.run_polling()
+
 # --- Coletar dados da KuCoin ---
 def obter_dados_kucoin(par, intervalo='1hour'):
     url = f"https://api.kucoin.com/api/v1/market/candles?type={intervalo}&symbol={par}"
@@ -36,8 +36,6 @@ def obter_dados_kucoin(par, intervalo='1hour'):
     registros = data['data']
     df = pd.DataFrame(registros, columns=['timestamp', 'open', 'close', 'high', 'low', 'volume', 'turnover'])
     df = df.iloc[::-1]  # inverter para ordem cronológica
-
-    # Corrigido: timestamp em segundos
     df['timestamp'] = pd.to_datetime(df['timestamp'], unit='s')
     df.set_index('timestamp', inplace=True)
     df = df.astype(float)
@@ -48,7 +46,6 @@ def obter_dados_kucoin(par, intervalo='1hour'):
     df['Lower'] = bb.bollinger_lband()
 
     return df.dropna()
-
 
 # --- Gerar gráfico ---
 def gerar_grafico(df, par):
@@ -74,19 +71,19 @@ def gerar_grafico(df, par):
     return caminho
 
 # --- Enviar mensagem ---
-def enviar_mensagem(bot, chat_id, texto, imagem=None):
+async def enviar_mensagem(app, chat_id, texto, imagem=None):
     if imagem:
-        bot.send_photo(chat_id=chat_id, photo=open(imagem, 'rb'), caption=texto)
+        await app.bot.send_photo(chat_id=chat_id, photo=open(imagem, 'rb'), caption=texto)
     else:
-        bot.send_message(chat_id=chat_id, text=texto)
+        await app.bot.send_message(chat_id=chat_id, text=texto)
 
 # --- Lógica da análise ---
-def analisar_todas(bot):
+async def analisar_todas(app):
     for par in CRIPTO_LISTA:
         try:
             df = obter_dados_kucoin(par, INTERVALO)
             if df is None or df.empty:
-                enviar_mensagem(bot, CHAT_ID, f"⚠️ Dados insuficientes para {par}")
+                await enviar_mensagem(app, CHAT_ID, f"⚠️ Dados insuficientes para {par}")
                 continue
 
             preco = df['close'].iloc[-1]
@@ -116,56 +113,58 @@ def analisar_todas(bot):
                 f"🗓 {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}"
             )
 
-            enviar_mensagem(bot, CHAT_ID, mensagem, grafico_path)
+            await enviar_mensagem(app, CHAT_ID, mensagem, grafico_path)
 
         except Exception as e:
-            enviar_mensagem(bot, CHAT_ID, f"Erro na análise de {par}: {e}")
+            await enviar_mensagem(app, CHAT_ID, f"Erro na análise de {par}: {e}")
 
 # --- Agendamento ---
-def agendar(bot):
-    schedule.every(30).minutes.do(lambda: analisar_todas(bot))
+def agendar(app):
+    schedule.every(30).minutes.do(lambda: asyncio.run(analisar_todas(app)))
     while True:
         schedule.run_pending()
         time.sleep(1)
 
 # --- Comandos do Bot ---
-def start(update: Update, context: CallbackContext):
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global analise_ativa
     analise_ativa = True
-    context.bot.send_message(chat_id=update.effective_chat.id, text="✅ Análise ativada a cada 30 minutos.")
+    await context.bot.send_message(chat_id=update.effective_chat.id, text="✅ Análise ativada a cada 30 minutos.")
 
-def stop(update: Update, context: CallbackContext):
+async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global analise_ativa
     analise_ativa = False
-    context.bot.send_message(chat_id=update.effective_chat.id, text="🛑 Análise pausada.")
+    await context.bot.send_message(chat_id=update.effective_chat.id, text="🛑 Análise pausada.")
 
-def agora(update: Update, context: CallbackContext):
-    context.bot.send_message(chat_id=update.effective_chat.id, text="⏳ Gerando análise agora...")
-    analisar_todas(context.bot)
+async def agora(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await context.bot.send_message(chat_id=update.effective_chat.id, text="⏳ Gerando análise agora...")
+    await analisar_todas(context.application)
 
-def menu(update: Update, context: CallbackContext):
+async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     botoes = [[InlineKeyboardButton("📊 Enviar Análise Agora", callback_data='agora')]]
-    update.message.reply_text("📍 Menu:", reply_markup=InlineKeyboardMarkup(botoes))
+    await update.message.reply_text("📍 Menu:", reply_markup=InlineKeyboardMarkup(botoes))
 
-def callback_handler(update: Update, context: CallbackContext):
+async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    query.answer()
+    await query.answer()
     if query.data == 'agora':
-        query.edit_message_text("⏳ Gerando análise agora...")
-        analisar_todas(context.bot)
+        await query.edit_message_text("⏳ Gerando análise agora...")
+        await analisar_todas(context.application)
 
-# --- Execução ---
-updater = Updater(token=TOKEN, use_context=True)
-dp = updater.dispatcher
+# --- Inicializa o app ---
+if __name__ == '__main__':
+    import asyncio
+    from telegram.ext import Application
 
-dp.add_handler(CommandHandler('start', start))
-dp.add_handler(CommandHandler('stop', stop))
-dp.add_handler(CommandHandler('agora', agora))
-dp.add_handler(CommandHandler('menu', menu))
-dp.add_handler(CallbackQueryHandler(callback_handler))
+    app = ApplicationBuilder().token(TOKEN).build()
 
-threading.Thread(target=agendar, args=(updater.bot,), daemon=True).start()
+    app.add_handler(CommandHandler('start', start))
+    app.add_handler(CommandHandler('stop', stop))
+    app.add_handler(CommandHandler('agora', agora))
+    app.add_handler(CommandHandler('menu', menu))
+    app.add_handler(CallbackQueryHandler(callback_handler))
 
-updater.start_polling()
-print("✅ Bot rodando...")
-updater.idle()
+    threading.Thread(target=agendar, args=(app,), daemon=True).start()
+
+    print("✅ Bot rodando...")
+    app.run_polling()
