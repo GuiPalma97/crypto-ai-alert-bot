@@ -10,9 +10,9 @@ from ta.momentum import RSIIndicator
 from ta.volatility import BollingerBands
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
-
-TOKEN = '8123262775:AAHEv43aS9dK8jXSjINqhDXbqxlHAfn4aTw'
-CHAT_ID = '7657570667'
+import os
+TOKEN = os.getenv("TOKEN")
+CHAT_ID = os.getenv("CHAT_ID")
 CRIPTO_LISTA = ['BTC-USDT', 'ETH-USDT', 'SOL-USDT']
 INTERVALO = '1hour'
 analise_ativa = False
