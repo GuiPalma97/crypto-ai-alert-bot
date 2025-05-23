@@ -190,7 +190,7 @@ async def on_startup(app):
 # --- Inicialização do Bot ---
 app = (
     Application.builder()
-    .token(TELEGRAM_TOKEN)
+    .token(TOKEN)
     .post_init(on_startup)  # Aqui passamos a tarefa de startup
     .build()
 )
