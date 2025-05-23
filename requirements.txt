@@ -1,8 +1,8 @@
-python-telegram-bot==20.7
-joblib
 pandas
-scikit-learn
-requests
 matplotlib
-python-dotenv
+requests
 schedule
+python-telegram-bot==20.3
+ta
+scikit-learn
+joblib
