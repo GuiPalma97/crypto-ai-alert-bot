@@ -113,7 +113,7 @@ async def analisar_todas(app):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global analise_ativa
     analise_ativa = True
-    await update.message.reply_text("✅ Análise ativada a cada 30 minutos.")
+    await update.message.reply_text("✅ Análise ativada a cada 3 horas.")
 
 async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global analise_ativa
