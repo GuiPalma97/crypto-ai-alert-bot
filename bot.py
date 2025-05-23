@@ -1,4 +1,6 @@
-
+# ✅ Instalar dependências
+!pip install python-telegram-bot==13.15 ta matplotlib pandas requests --quiet
+!pip install requests pandas ta vaderSentiment twilio newsapi-python schedule --quiet
 # --- Imports ---
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -12,14 +14,12 @@ from ta.momentum import RSIIndicator
 from ta.volatility import BollingerBands
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Updater, CommandHandler, CallbackContext, CallbackQueryHandler
-import os
-
-TOKEN = os.getenv('8123262775:AAHEv43aS9dK8jXSjINqhDXbqxlHAfn4aTw')
-CHAT_ID = os.getenv('7657570667')
 
 # --- Configurações ---
-CRIPTO_LISTA = ['BTC-USDT', 'ETH-USDT', 'SOL-USDT','LDO-USDT', 'AAVE-USDT']
-INTERVALO = '1hour'  # opções: '1min', '5min', '1hour', '1day', '1week'
+TOKEN = '8123262775:AAHEv43aS9dK8jXSjINqhDXbqxlHAfn4aTw'
+CHAT_ID = '7657570667'
+CRIPTO_LISTA = ['BTC-USDT', 'ETH-USDT', 'SOL-USDT']
+INTERVALO = '1hour'  # opções: '1min', '5min', '1hour', '1day'
 analise_ativa = False
 
 # --- Coletar dados da KuCoin ---
@@ -47,6 +47,7 @@ def obter_dados_kucoin(par, intervalo='1hour'):
     df['Lower'] = bb.bollinger_lband()
 
     return df.dropna()
+
 
 # --- Gerar gráfico ---
 def gerar_grafico(df, par):
@@ -141,48 +142,9 @@ def agora(update: Update, context: CallbackContext):
     context.bot.send_message(chat_id=update.effective_chat.id, text="⏳ Gerando análise agora...")
     analisar_todas(context.bot)
 
-def add(update: Update, context: CallbackContext):
-    if context.args:
-        par = context.args[0].upper()
-        if par not in CRIPTO_LISTA:
-            CRIPTO_LISTA.append(par)
-            context.bot.send_message(chat_id=update.effective_chat.id, text=f"✅ {par} adicionado à lista.")
-        else:
-            context.bot.send_message(chat_id=update.effective_chat.id, text=f"⚠️ {par} já está na lista.")
-    else:
-        context.bot.send_message(chat_id=update.effective_chat.id, text="❗ Use: /add BTC-USDT")
-
-def remove(update: Update, context: CallbackContext):
-    if context.args:
-        par = context.args[0].upper()
-        if par in CRIPTO_LISTA:
-            CRIPTO_LISTA.remove(par)
-            context.bot.send_message(chat_id=update.effective_chat.id, text=f"✅ {par} removido da lista.")
-        else:
-            context.bot.send_message(chat_id=update.effective_chat.id, text=f"⚠️ {par} não está na lista.")
-    else:
-        context.bot.send_message(chat_id=update.effective_chat.id, text="❗ Use: /remove BTC-USDT")
-
-def intervalo(update: Update, context: CallbackContext):
-    global INTERVALO
-    if context.args:
-        novo = context.args[0]
-        if novo in ['1min', '5min', '1hour', '1day', '1week']:
-            INTERVALO = novo
-            context.bot.send_message(chat_id=update.effective_chat.id, text=f"🔁 Intervalo alterado para {novo}.")
-        else:
-            context.bot.send_message(chat_id=update.effective_chat.id, text="❗ Intervalo inválido. Use: 1min, 5min, 1hour ou 1day.")
-    else:
-        context.bot.send_message(chat_id=update.effective_chat.id, text="❗ Use: /intervalo 1hour")
-
 def menu(update: Update, context: CallbackContext):
-    botoes = [
-        [InlineKeyboardButton("📊 Enviar Análise Agora", callback_data='agora')],
-        [InlineKeyboardButton("➕ Adicionar Cripto", callback_data='add')],
-        [InlineKeyboardButton("➖ Remover Cripto", callback_data='remove')],
-        [InlineKeyboardButton("🔁 Alterar Intervalo", callback_data='intervalo')]
-    ]
-    update.message.reply_text("📍 Menu Interativo:", reply_markup=InlineKeyboardMarkup(botoes))
+    botoes = [[InlineKeyboardButton("📊 Enviar Análise Agora", callback_data='agora')]]
+    update.message.reply_text("📍 Menu:", reply_markup=InlineKeyboardMarkup(botoes))
 
 def callback_handler(update: Update, context: CallbackContext):
     query = update.callback_query
@@ -190,29 +152,19 @@ def callback_handler(update: Update, context: CallbackContext):
     if query.data == 'agora':
         query.edit_message_text("⏳ Gerando análise agora...")
         analisar_todas(context.bot)
-    elif query.data == 'add':
-        query.edit_message_text("Use o comando: /add BTC-USDT")
-    elif query.data == 'remove':
-        query.edit_message_text("Use o comando: /remove BTC-USDT")
-    elif query.data == 'intervalo':
-        query.edit_message_text("Use o comando: /intervalo 1hour")
 
 # --- Execução ---
 updater = Updater(token=TOKEN, use_context=True)
 dp = updater.dispatcher
 
-# --- Registrar comandos ---
 dp.add_handler(CommandHandler('start', start))
 dp.add_handler(CommandHandler('stop', stop))
 dp.add_handler(CommandHandler('agora', agora))
 dp.add_handler(CommandHandler('menu', menu))
-dp.add_handler(CommandHandler('add', add))
-dp.add_handler(CommandHandler('remove', remove))
-dp.add_handler(CommandHandler('intervalo', intervalo))
 dp.add_handler(CallbackQueryHandler(callback_handler))
 
-# --- Iniciar bot ---
 threading.Thread(target=agendar, args=(updater.bot,), daemon=True).start()
+
 updater.start_polling()
 print("✅ Bot rodando...")
 updater.idle()
