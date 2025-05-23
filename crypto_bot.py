@@ -16,8 +16,8 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Updater, CommandHandler, CallbackContext, CallbackQueryHandler
 import os
 
-TOKEN = os.getenv('8123262775:AAHEv43aS9dK8jXSjINqhDXbqxlHAfn4aTw')
-CHAT_ID = os.getenv('7657570667')
+TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
+CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 
 # --- Configurações ---
 CRIPTO_LISTA = ['BTC-USDT', 'ETH-USDT', 'SOL-USDT', 'LDO-USDT', 'AAVE-USDT']
