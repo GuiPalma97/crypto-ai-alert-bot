@@ -11,14 +11,12 @@ from ta.momentum import RSIIndicator
 from ta.volatility import BollingerBands
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Updater, CommandHandler, CallbackContext, CallbackQueryHandler
-import os
-
-TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
-CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 
 # --- Configurações ---
-CRIPTO_LISTA = ['BTC-USDT', 'ETH-USDT', 'SOL-USDT', 'LDO-USDT', 'AAVE-USDT']
-INTERVALO = '1hour'  # opções: '1min', '5min', '1hour', '1day', '1week'
+TOKEN = 'SEU_TOKEN_AQUI'
+CHAT_ID = 'SEU_CHAT_ID_AQUI'
+CRIPTO_LISTA = ['BTC-USDT', 'ETH-USDT', 'SOL-USDT']
+INTERVALO = '1hour'  # opções: '1min', '5min', '1hour', '1day'
 analise_ativa = False
 
 # --- Coletar dados da KuCoin ---
@@ -46,6 +44,7 @@ def obter_dados_kucoin(par, intervalo='1hour'):
     df['Lower'] = bb.bollinger_lband()
 
     return df.dropna()
+
 
 # --- Gerar gráfico ---
 def gerar_grafico(df, par):
@@ -118,81 +117,6 @@ def analisar_todas(bot):
         except Exception as e:
             enviar_mensagem(bot, CHAT_ID, f"Erro na análise de {par}: {e}")
 
-# --- Função nova: Insights detalhados com preditiva ---
-def insights(update: Update, context: CallbackContext):
-    if not context.args:
-        update.message.reply_text("❗ Use o comando com o par desejado. Exemplo:\n/insights BTC-USDT")
-        return
-
-    par = context.args[0].upper()
-    if par not in CRIPTO_LISTA:
-        update.message.reply_text(f"⚠️ {par} não está na lista. Use /add para adicioná-la primeiro.")
-        return
-
-    update.message.reply_text(f"🔍 Gerando insights para {par}...")
-
-    df = obter_dados_kucoin(par, INTERVALO)
-    if df is None or df.empty:
-        update.message.reply_text(f"⚠️ Não foi possível obter dados para {par}.")
-        return
-
-    preco_atual = df['close'].iloc[-1]
-    rsi_atual = df['RSI'].iloc[-1]
-    upper = df['Upper'].iloc[-1]
-    lower = df['Lower'].iloc[-1]
-    volume_medio = df['volume'].rolling(window=10).mean().iloc[-1]
-    volume_atual = df['volume'].iloc[-1]
-
-    # Movimento grande de volume?
-    mov_volume = (volume_atual > 2 * volume_medio)
-
-    # Status Bollinger
-    status_bollinger = (
-        "Preço acima da banda superior (possível sobrecompra)" if preco_atual > upper else
-        "Preço abaixo da banda inferior (possível sobrevenda)" if preco_atual < lower else
-        "Preço dentro das bandas de Bollinger"
-    )
-
-    # Status RSI
-    if rsi_atual < 30:
-        status_rsi = "RSI indica sobrevenda (potencial oportunidade de compra)."
-    elif rsi_atual > 70:
-        status_rsi = "RSI indica sobrecompra (potencial momento de venda)."
-    else:
-        status_rsi = "RSI está neutro."
-
-    # Análise preditiva simples: média móvel e tendência
-    df['MA20'] = df['close'].rolling(window=20).mean()
-    ma20_atual = df['MA20'].iloc[-1]
-
-    tendencia = "indefinida"
-    if preco_atual > ma20_atual:
-        tendencia = "tendência de alta"
-    elif preco_atual < ma20_atual:
-        tendencia = "tendência de baixa"
-
-    # Diferença percentual no preço da última vela
-    variacao_ultimo = ((df['close'].iloc[-1] - df['close'].iloc[-2]) / df['close'].iloc[-2]) * 100
-
-    insight_msg = (
-        f"📈 *Insights para {par}*\n\n"
-        f"💰 Preço atual: ${preco_atual:,.2f}\n"
-        f"⚖️ Tendência atual: {tendencia}\n"
-        f"📊 Última variação: {variacao_ultimo:.2f}%\n"
-        f"🔔 Volume atual: {volume_atual:.4f} (média 10 velas: {volume_medio:.4f})\n"
-        f"{'🚨 Volume alto detectado!' if mov_volume else 'Volume dentro do normal.'}\n\n"
-        f"{status_bollinger}\n"
-        f"{status_rsi}\n\n"
-        f"🧠 *Recomendações:* \n"
-        f"- Considere comprar se RSI e Bollinger indicam sobrevenda e volume alto.\n"
-        f"- Considere vender se RSI e Bollinger indicam sobrecompra.\n"
-        f"- Acompanhe a tendência e volumes para confirmar movimentos.\n\n"
-        f"🕒 Intervalo analisado: {INTERVALO}\n"
-        f"📅 {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}"
-    )
-
-    update.message.reply_text(insight_msg, parse_mode='Markdown')
-
 # --- Agendamento ---
 def agendar(bot):
     schedule.every(30).minutes.do(lambda: analisar_todas(bot))
@@ -215,92 +139,29 @@ def agora(update: Update, context: CallbackContext):
     context.bot.send_message(chat_id=update.effective_chat.id, text="⏳ Gerando análise agora...")
     analisar_todas(context.bot)
 
-def add(update: Update, context: CallbackContext):
-    if context.args:
-        par = context.args[0].upper()
-        if par not in CRIPTO_LISTA:
-            CRIPTO_LISTA.append(par)
-            context.bot.send_message(chat_id=update.effective_chat.id, text=f"✅ {par} adicionado à lista.")
-        else:
-            context.bot.send_message(chat_id=update.effective_chat.id, text=f"⚠️ {par} já está na lista.")
-    else:
-        context.bot.send_message(chat_id=update.effective_chat.id, text="❗ Use: /add BTC-USDT")
-
-def remove(update: Update, context: CallbackContext):
-    if context.args:
-        par = context.args[0].upper()
-        if par in CRIPTO_LISTA:
-            CRIPTO_LISTA.remove(par)
-            context.bot.send_message(chat_id=update.effective_chat.id, text=f"✅ {par} removido da lista.")
-        else:
-            context.bot.send_message(chat_id=update.effective_chat.id, text=f"⚠️ {par} não está na lista.")
-    else:
-        context.bot.send_message(chat_id=update.effective_chat.id, text="❗ Use: /remove BTC-USDT")
-
-def intervalo(update: Update, context: CallbackContext):
-    global INTERVALO
-    if context.args:
-        novo_int = context.args[0]
-        if novo_int in ['1min', '5min', '15min', '30min', '1hour', '1day', '1week']:
-            INTERVALO = novo_int
-            context.bot.send_message(chat_id=update.effective_chat.id, text=f"✅ Intervalo alterado para {INTERVALO}")
-        else:
-            context.bot.send_message(chat_id=update.effective_chat.id, text="⚠️ Intervalo inválido. Use: 1min, 5min, 15min, 30min, 1hour, 1day, 1week")
-    else:
-        context.bot.send_message(chat_id=update.effective_chat.id, text="❗ Use: /intervalo 1hour")
-
 def menu(update: Update, context: CallbackContext):
-    botoes = [
-        [InlineKeyboardButton("📊 Enviar Análise Agora", callback_data='agora')],
-        [InlineKeyboardButton("💡 Obter Insights", callback_data='insights')],
-        [InlineKeyboardButton("➕ Adicionar Cripto", callback_data='add')],
-        [InlineKeyboardButton("➖ Remover Cripto", callback_data='remove')],
-        [InlineKeyboardButton("🔁 Alterar Intervalo", callback_data='intervalo')]
-    ]
-    update.message.reply_text("📍 Menu Interativo:", reply_markup=InlineKeyboardMarkup(botoes))
+    botoes = [[InlineKeyboardButton("📊 Enviar Análise Agora", callback_data='agora')]]
+    update.message.reply_text("📍 Menu:", reply_markup=InlineKeyboardMarkup(botoes))
 
 def callback_handler(update: Update, context: CallbackContext):
     query = update.callback_query
     query.answer()
-
     if query.data == 'agora':
-        query.edit_message_text(text="⏳ Gerando análise agora...")
+        query.edit_message_text("⏳ Gerando análise agora...")
         analisar_todas(context.bot)
-        query.message.reply_text("✅ Análise enviada.")
-    elif query.data == 'insights':
-        query.edit_message_text(text="❗ Use o comando: /insights BTC-USDT")
-    elif query.data == 'add':
-        query.edit_message_text(text="❗ Use o comando: /add BTC-USDT")
-    elif query.data == 'remove':
-        query.edit_message_text(text="❗ Use o comando: /remove BTC-USDT")
-    elif query.data == 'intervalo':
-        query.edit_message_text(text="❗ Use o comando: /intervalo 1hour")
 
-# --- Main ---
-def main():
-    updater = Updater(token=TOKEN, use_context=True)
-    dp = updater.dispatcher
+# --- Execução ---
+updater = Updater(token=TOKEN, use_context=True)
+dp = updater.dispatcher
 
-    dp.add_handler(CommandHandler('start', start))
-    dp.add_handler(CommandHandler('stop', stop))
-    dp.add_handler(CommandHandler('agora', agora))
-    dp.add_handler(CommandHandler('add', add))
-    dp.add_handler(CommandHandler('remove', remove))
-    dp.add_handler(CommandHandler('intervalo', intervalo))
-    dp.add_handler(CommandHandler('menu', menu))
-    dp.add_handler(CommandHandler('insights', insights))
+dp.add_handler(CommandHandler('start', start))
+dp.add_handler(CommandHandler('stop', stop))
+dp.add_handler(CommandHandler('agora', agora))
+dp.add_handler(CommandHandler('menu', menu))
+dp.add_handler(CallbackQueryHandler(callback_handler))
 
-    dp.add_handler(CallbackQueryHandler(callback_handler))
+threading.Thread(target=agendar, args=(updater.bot,), daemon=True).start()
 
-    updater.start_polling()
-    print("Bot iniciado.")
-
-    # Rodar agendamento em thread separada para não travar o bot
-    bot = updater.bot
-    thread = threading.Thread(target=agendar, args=(bot,), daemon=True)
-    thread.start()
-
-    updater.idle()
-
-if __name__ == '__main__':
-    main()
+updater.start_polling()
+print("✅ Bot rodando...")
+updater.idle()
