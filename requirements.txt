@@ -5,4 +5,5 @@ numpy
 ta
 requests
 schedule
+kucoin-python==1.0.10
 
