@@ -1,1 +1,2 @@
-web: python3 crypto_bot.py
+web: python crypto_bot.py
+
