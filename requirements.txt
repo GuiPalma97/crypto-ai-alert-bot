@@ -4,3 +4,4 @@ requests
 matplotlib
 ta
 schedule
+joblib
