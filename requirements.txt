@@ -2,7 +2,7 @@ pandas
 matplotlib
 requests
 schedule
-python-telegram-bot==20.3
+python-telegram-bot==13.15
 ta
 scikit-learn
 joblib
