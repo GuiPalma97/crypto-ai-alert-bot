@@ -1,5 +1,7 @@
+# ✅ Instalar dependências
+!pip install python-telegram-bot==13.15 ta matplotlib pandas requests --quiet
+
 # --- Imports ---
-import os
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
@@ -11,20 +13,15 @@ from datetime import datetime
 from ta.momentum import RSIIndicator
 from ta.volatility import BollingerBands
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import (
-    ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
-)
+from telegram.ext import Updater, CommandHandler, CallbackContext, CallbackQueryHandler
+import os
 
-# --- Variáveis de ambiente ---
-TOKEN = os.getenv('TOKEN')
-CHAT_ID = os.getenv('CHAT_ID')
-
-# --- Inicializar aplicativo ---
-app = ApplicationBuilder().token(TOKEN).build()
+TOKEN = os.getenv('8123262775:AAHEv43aS9dK8jXSjINqhDXbqxlHAfn4aTw')
+CHAT_ID = os.getenv('7657570667')
 
 # --- Configurações ---
-CRIPTO_LISTA = ['BTC-USDT', 'ETH-USDT', 'SOL-USDT']
-INTERVALO = '1hour'  # opções: '1min', '5min', '1hour', '1day'
+CRIPTO_LISTA = ['BTC-USDT', 'ETH-USDT', 'SOL-USDT','LDO-USDT', 'AAVE-USDT']
+INTERVALO = '1hour'  # opções: '1min', '5min', '1hour', '1day', '1week'
 analise_ativa = False
 
 # --- Coletar dados da KuCoin ---
@@ -40,6 +37,8 @@ def obter_dados_kucoin(par, intervalo='1hour'):
     registros = data['data']
     df = pd.DataFrame(registros, columns=['timestamp', 'open', 'close', 'high', 'low', 'volume', 'turnover'])
     df = df.iloc[::-1]  # inverter para ordem cronológica
+
+    # Corrigido: timestamp em segundos
     df['timestamp'] = pd.to_datetime(df['timestamp'], unit='s')
     df.set_index('timestamp', inplace=True)
     df = df.astype(float)
@@ -75,19 +74,19 @@ def gerar_grafico(df, par):
     return caminho
 
 # --- Enviar mensagem ---
-async def enviar_mensagem(app, chat_id, texto, imagem=None):
+def enviar_mensagem(bot, chat_id, texto, imagem=None):
     if imagem:
-        await app.bot.send_photo(chat_id=chat_id, photo=open(imagem, 'rb'), caption=texto)
+        bot.send_photo(chat_id=chat_id, photo=open(imagem, 'rb'), caption=texto)
     else:
-        await app.bot.send_message(chat_id=chat_id, text=texto)
+        bot.send_message(chat_id=chat_id, text=texto)
 
 # --- Lógica da análise ---
-async def analisar_todas(app):
+def analisar_todas(bot):
     for par in CRIPTO_LISTA:
         try:
             df = obter_dados_kucoin(par, INTERVALO)
             if df is None or df.empty:
-                await enviar_mensagem(app, CHAT_ID, f"⚠️ Dados insuficientes para {par}")
+                enviar_mensagem(bot, CHAT_ID, f"⚠️ Dados insuficientes para {par}")
                 continue
 
             preco = df['close'].iloc[-1]
@@ -117,58 +116,105 @@ async def analisar_todas(app):
                 f"🗓 {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}"
             )
 
-            await enviar_mensagem(app, CHAT_ID, mensagem, grafico_path)
+            enviar_mensagem(bot, CHAT_ID, mensagem, grafico_path)
 
         except Exception as e:
-            await enviar_mensagem(app, CHAT_ID, f"Erro na análise de {par}: {e}")
+            enviar_mensagem(bot, CHAT_ID, f"Erro na análise de {par}: {e}")
 
 # --- Agendamento ---
-def agendar(app):
-    schedule.every(30).minutes.do(lambda: asyncio.run(analisar_todas(app)))
+def agendar(bot):
+    schedule.every(30).minutes.do(lambda: analisar_todas(bot))
     while True:
         schedule.run_pending()
         time.sleep(1)
 
 # --- Comandos do Bot ---
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def start(update: Update, context: CallbackContext):
     global analise_ativa
     analise_ativa = True
-    await context.bot.send_message(chat_id=update.effective_chat.id, text="✅ Análise ativada a cada 30 minutos.")
+    context.bot.send_message(chat_id=update.effective_chat.id, text="✅ Análise ativada a cada 30 minutos.")
 
-async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def stop(update: Update, context: CallbackContext):
     global analise_ativa
     analise_ativa = False
-    await context.bot.send_message(chat_id=update.effective_chat.id, text="🛑 Análise pausada.")
+    context.bot.send_message(chat_id=update.effective_chat.id, text="🛑 Análise pausada.")
 
-async def agora(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await context.bot.send_message(chat_id=update.effective_chat.id, text="⏳ Gerando análise agora...")
-    await analisar_todas(context.application)
+def agora(update: Update, context: CallbackContext):
+    context.bot.send_message(chat_id=update.effective_chat.id, text="⏳ Gerando análise agora...")
+    analisar_todas(context.bot)
 
-async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    botoes = [[InlineKeyboardButton("📊 Enviar Análise Agora", callback_data='agora')]]
-    await update.message.reply_text("📍 Menu:", reply_markup=InlineKeyboardMarkup(botoes))
+def add(update: Update, context: CallbackContext):
+    if context.args:
+        par = context.args[0].upper()
+        if par not in CRIPTO_LISTA:
+            CRIPTO_LISTA.append(par)
+            context.bot.send_message(chat_id=update.effective_chat.id, text=f"✅ {par} adicionado à lista.")
+        else:
+            context.bot.send_message(chat_id=update.effective_chat.id, text=f"⚠️ {par} já está na lista.")
+    else:
+        context.bot.send_message(chat_id=update.effective_chat.id, text="❗ Use: /add BTC-USDT")
 
-async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def remove(update: Update, context: CallbackContext):
+    if context.args:
+        par = context.args[0].upper()
+        if par in CRIPTO_LISTA:
+            CRIPTO_LISTA.remove(par)
+            context.bot.send_message(chat_id=update.effective_chat.id, text=f"✅ {par} removido da lista.")
+        else:
+            context.bot.send_message(chat_id=update.effective_chat.id, text=f"⚠️ {par} não está na lista.")
+    else:
+        context.bot.send_message(chat_id=update.effective_chat.id, text="❗ Use: /remove BTC-USDT")
+
+def intervalo(update: Update, context: CallbackContext):
+    global INTERVALO
+    if context.args:
+        novo = context.args[0]
+        if novo in ['1min', '5min', '1hour', '1day', '1week']:
+            INTERVALO = novo
+            context.bot.send_message(chat_id=update.effective_chat.id, text=f"🔁 Intervalo alterado para {novo}.")
+        else:
+            context.bot.send_message(chat_id=update.effective_chat.id, text="❗ Intervalo inválido. Use: 1min, 5min, 1hour ou 1day.")
+    else:
+        context.bot.send_message(chat_id=update.effective_chat.id, text="❗ Use: /intervalo 1hour")
+
+def menu(update: Update, context: CallbackContext):
+    botoes = [
+        [InlineKeyboardButton("📊 Enviar Análise Agora", callback_data='agora')],
+        [InlineKeyboardButton("➕ Adicionar Cripto", callback_data='add')],
+        [InlineKeyboardButton("➖ Remover Cripto", callback_data='remove')],
+        [InlineKeyboardButton("🔁 Alterar Intervalo", callback_data='intervalo')]
+    ]
+    update.message.reply_text("📍 Menu Interativo:", reply_markup=InlineKeyboardMarkup(botoes))
+
+def callback_handler(update: Update, context: CallbackContext):
     query = update.callback_query
-    await query.answer()
+    query.answer()
     if query.data == 'agora':
-        await query.edit_message_text("⏳ Gerando análise agora...")
-        await analisar_todas(context.application)
+        query.edit_message_text("⏳ Gerando análise agora...")
+        analisar_todas(context.bot)
+    elif query.data == 'add':
+        query.edit_message_text("Use o comando: /add BTC-USDT")
+    elif query.data == 'remove':
+        query.edit_message_text("Use o comando: /remove BTC-USDT")
+    elif query.data == 'intervalo':
+        query.edit_message_text("Use o comando: /intervalo 1hour")
 
-# --- Inicializa o app ---
-if __name__ == '__main__':
-    import asyncio
-    from telegram.ext import Application
+# --- Execução ---
+updater = Updater(token=TOKEN, use_context=True)
+dp = updater.dispatcher
 
-    app = ApplicationBuilder().token(TOKEN).build()
+# --- Registrar comandos ---
+dp.add_handler(CommandHandler('start', start))
+dp.add_handler(CommandHandler('stop', stop))
+dp.add_handler(CommandHandler('agora', agora))
+dp.add_handler(CommandHandler('menu', menu))
+dp.add_handler(CommandHandler('add', add))
+dp.add_handler(CommandHandler('remove', remove))
+dp.add_handler(CommandHandler('intervalo', intervalo))
+dp.add_handler(CallbackQueryHandler(callback_handler))
 
-    app.add_handler(CommandHandler('start', start))
-    app.add_handler(CommandHandler('stop', stop))
-    app.add_handler(CommandHandler('agora', agora))
-    app.add_handler(CommandHandler('menu', menu))
-    app.add_handler(CallbackQueryHandler(callback_handler))
-
-    threading.Thread(target=agendar, args=(app,), daemon=True).start()
-
-    print("✅ Bot rodando...")
-    app.run_polling()
+# --- Iniciar bot ---
+threading.Thread(target=agendar, args=(updater.bot,), daemon=True).start()
+updater.start_polling()
+print("✅ Bot rodando...")
+updater.idle()
