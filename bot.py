@@ -137,7 +137,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await analisar_todas(context.application)
 
 def agendar(app):
-    schedule.every(30).minutes.do(lambda: asyncio.run(analisar_todas(app)))
+    schedule.every(3).hours.do(lambda: asyncio.run(analisar_todas(app)))
     while True:
         schedule.run_pending()
         time.sleep(1)
