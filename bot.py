@@ -1,5 +1,4 @@
-# ✅ Instalar dependências
-!pip install python-telegram-bot==13.15 ta matplotlib pandas requests --quiet
+
 # --- Imports ---
 import pandas as pd
 import matplotlib.pyplot as plt
