@@ -177,10 +177,24 @@ def mensagem_texto(update: Update, context: CallbackContext):
 if __name__ == '__main__':
     app = Application.builder().token(TOKEN).build()
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("menu", menu))
-    app.add_handler(CallbackQueryHandler(callback_handler))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, mensagem_texto))
+# --- Função assíncrona que roda o loop de análise ---
+async def loop_analise(app):
+    while True:
+        await analisar_todas(app.bot)
+        await asyncio.sleep(1800)  # 30 minutos
 
+# --- Função chamada no startup ---
+async def on_startup(app):
     app.create_task(loop_analise(app))
-    app.run_polling()
+
+# --- Inicialização do Bot ---
+app = (
+    Application.builder()
+    .token(TELEGRAM_TOKEN)
+    .post_init(on_startup)  # Aqui passamos a tarefa de startup
+    .build()
+)
+
+# Adiciona seus handlers, etc.
+
+app.run_polling()
