@@ -1,164 +1,157 @@
-import pandas as pd
-import matplotlib.pyplot as plt
-import numpy as np
-import requests
-import time
-import schedule
-import threading
-from datetime import datetime
-from ta.momentum import RSIIndicator
-from ta.volatility import BollingerBands
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
 import os
+import asyncio
+import logging
+import matplotlib.pyplot as plt
+import pandas as pd
+import ta
+from ta.momentum import RSIIndicator
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, CallbackContext, CallbackQueryHandler, MessageHandler, filters
+from kucoin.client import Market
+from datetime import datetime
+
+# Configurações iniciais
 TOKEN = os.getenv("TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
-CRIPTO_LISTA = ['BTC-USDT', 'ETH-USDT', 'SOL-USDT']
+CRIPTO_LISTA = ['BTC-USDT', 'ETH-USDT', 'SOL-USDT', 'AAVE-USDT']
 INTERVALO = '1hour'
 analise_ativa = False
 
-# --- Coletar dados da KuCoin ---
-def obter_dados_kucoin(par, intervalo='1hour'):
-    url = f"https://api.kucoin.com/api/v1/market/candles?type={intervalo}&symbol={par}"
-    response = requests.get(url)
-    data = response.json()
-    if data['code'] != '200000':
-        print(f"Erro ao obter dados da KuCoin para {par}: {data}")
+logging.basicConfig(level=logging.INFO)
+
+client = Market()
+
+# Função para obter dados da KuCoin
+def obter_dados_kucoin(par, intervalo):
+    try:
+        raw = client.get_kline_market(par, intervalo, limit=100)
+        df = pd.DataFrame(raw, columns=["timestamp", "open", "close", "high", "low", "volume", "turnover"])
+        df = df.astype(float)
+        df["timestamp"] = pd.to_datetime(df["timestamp"], unit="s")
+        df.set_index("timestamp", inplace=True)
+        return df
+    except Exception as e:
+        print(f"Erro ao obter dados: {e}")
         return None
-    registros = data['data']
-    df = pd.DataFrame(registros, columns=['timestamp', 'open', 'close', 'high', 'low', 'volume', 'turnover'])
-    df = df.iloc[::-1]
-    df['timestamp'] = pd.to_datetime(df['timestamp'], unit='s')
-    df.set_index('timestamp', inplace=True)
-    df = df.astype(float)
-    df['RSI'] = RSIIndicator(df['close']).rsi()
-    bb = BollingerBands(close=df['close'])
-    df['Upper'] = bb.bollinger_hband()
-    df['Lower'] = bb.bollinger_lband()
-    return df.dropna()
 
-# --- Gerar gráfico ---
+# Função para gerar gráfico e RSI
 def gerar_grafico(df, par):
-    fig, ax = plt.subplots(figsize=(12, 6))
-    df['Data'] = df.index
-    for i in range(len(df)):
-        cor = 'green' if df['close'].iloc[i] > df['open'].iloc[i] else 'red'
-        ax.plot([df['Data'].iloc[i], df['Data'].iloc[i]], [df['low'].iloc[i], df['high'].iloc[i]], color=cor)
-        ax.plot([df['Data'].iloc[i], df['Data'].iloc[i]], [df['open'].iloc[i], df['close'].iloc[i]], linewidth=6, color=cor)
-    ax.plot(df['Data'], df['Upper'], linestyle='--', color='blue', label='Banda Superior')
-    ax.plot(df['Data'], df['Lower'], linestyle='--', color='blue', label='Banda Inferior')
-    ax.set_title(f"{par} - Preço, RSI e Bandas de Bollinger")
-    ax.set_xlabel("Data")
-    ax.set_ylabel("Preço (USDT)")
-    ax.legend()
-    caminho = f"{par.replace('-', '_')}_grafico.png"
+    rsi = RSIIndicator(df["close"])
+    df["RSI"] = rsi.rsi()
+
+    plt.figure(figsize=(10, 6))
+    plt.subplot(2, 1, 1)
+    plt.plot(df["close"], label="Preço")
+    plt.title(f"{par} Preço")
+    plt.grid()
+
+    plt.subplot(2, 1, 2)
+    plt.plot(df["RSI"], label="RSI", color="orange")
+    plt.axhline(70, color='red', linestyle='--')
+    plt.axhline(30, color='green', linestyle='--')
+    plt.title("RSI")
+    plt.grid()
+
     plt.tight_layout()
-    plt.savefig(caminho)
+    filepath = f"{par.replace('-', '')}.png"
+    plt.savefig(filepath)
     plt.close()
-    return caminho
+    return filepath, df["RSI"].iloc[-1]
 
-# --- Enviar mensagem ---
-async def enviar_mensagem(bot, texto, imagem=None):
-    if imagem:
-        await bot.send_photo(chat_id=CHAT_ID, photo=open(imagem, 'rb'), caption=texto)
-    else:
-        await bot.send_message(chat_id=CHAT_ID, text=texto)
-
-# --- Lógica de análise ---
+# Envia análises
 async def analisar_todas(bot):
     for par in CRIPTO_LISTA:
-        try:
-            df = obter_dados_kucoin(par, INTERVALO)
-            if df is None or df.empty:
-                await enviar_mensagem(bot, f"⚠️ Dados insuficientes para {par}")
-                continue
-            preco = df['close'].iloc[-1]
-            rsi = df['RSI'].iloc[-1]
-            upper = df['Upper'].iloc[-1]
-            lower = df['Lower'].iloc[-1]
-            status_bollinger = (
-                "Acima da banda superior" if preco > upper else
-                "Abaixo da banda inferior" if preco < lower else
-                "Dentro das bandas"
-            )
-            rsi_msg = (
-                "🟢 RSI indica sobrevenda (possível compra)" if rsi < 30 else
-                "🔴 RSI indica sobrecompra (possível venda)" if rsi > 70 else
-                "⚪ RSI neutro"
-            )
-            grafico_path = gerar_grafico(df, par)
-            mensagem = (
-                f"📊 Análise de {par}\n"
-                f"💰 Preço atual: ${preco:,.2f}\n"
-                f"📈 {rsi_msg} ({rsi:.2f})\n"
-                f"📉 Bandas de Bollinger: {status_bollinger}\n"
-                f"🕒 Intervalo: {INTERVALO}\n"
-                f"🗓 {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}"
-            )
-            await enviar_mensagem(bot, mensagem, grafico_path)
-        except Exception as e:
-            await enviar_mensagem(bot, f"Erro na análise de {par}: {e}")
+        df = obter_dados_kucoin(par, '1hour')
+        if df is not None and not df.empty:
+            imagem, rsi = gerar_grafico(df, par)
 
-# --- Comandos do Bot ---
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            # Análise semanal para sugestão IA
+            df_semanal = obter_dados_kucoin(par, '1week')
+            if df_semanal is not None and not df_semanal.empty:
+                rsi_sem = RSIIndicator(df_semanal['close']).rsi().iloc[-1]
+                sugestao = (
+                    "🤖 SUGESTÃO IA: 🟢 COMPRAR (RSI semanal baixo)" if rsi_sem < 30 else
+                    "🤖 SUGESTÃO IA: 🔴 VENDER (RSI semanal alto)" if rsi_sem > 70 else
+                    "🤖 SUGESTÃO IA: ⚪ MANTER (RSI semanal neutro)"
+                )
+            else:
+                sugestao = "🤖 SUGESTÃO IA: RSI semanal indisponível"
+
+            mensagem = f"📊 Análise {par}\nRSI: {rsi:.2f}\n{sugestao}"
+            await bot.send_photo(chat_id=os.getenv("TELEGRAM_CHAT_ID"), photo=open(imagem, "rb"), caption=mensagem)
+
+# Loop de análise automática
+async def loop_analise(application):
     global analise_ativa
-    analise_ativa = True
-    await update.message.reply_text("✅ Análise ativada a cada 30 minutos.")
-
-async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global analise_ativa
-    analise_ativa = False
-    await update.message.reply_text("🛑 Análise pausada.")
-
-async def agora(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("⏳ Gerando análise agora...")
-    await analisar_todas(context.bot)
-
-async def lista(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(f"📋 Criptomoedas monitoradas:\n{', '.join(CRIPTO_LISTA)}")
-
-async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if context.args:
-        nova = context.args[0].upper()
-        if nova in CRIPTO_LISTA:
-            await update.message.reply_text(f"⚠️ {nova} já está na lista.")
-        else:
-            CRIPTO_LISTA.append(nova)
-            await update.message.reply_text(f"✅ {nova} adicionada à lista.")
-    else:
-        await update.message.reply_text("❗ Use: /add BTC-USDT")
-
-async def remove(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if context.args:
-        alvo = context.args[0].upper()
-        if alvo in CRIPTO_LISTA:
-            CRIPTO_LISTA.remove(alvo)
-            await update.message.reply_text(f"🗑 {alvo} removida da lista.")
-        else:
-            await update.message.reply_text(f"⚠️ {alvo} não está na lista.")
-    else:
-        await update.message.reply_text("❗ Use: /remove BTC-USDT")
-
-# --- Agendamento ---
-def agendar(app):
-    async def job():
-        if analise_ativa:
-            await analisar_todas(app.bot)
-    schedule.every(30).minutes.do(lambda: asyncio.run(job()))
     while True:
-        schedule.run_pending()
-        time.sleep(1)
+        if analise_ativa:
+            await analisar_todas(application.bot)
+        await asyncio.sleep(3600)  # 1 hora
 
-# --- Execução principal ---
+# Comando /start
+async def start(update: Update, context: CallbackContext):
+    await update.message.reply_text("🤖 Bot de Análise de Criptomoedas Ativado. Use /menu para ver opções.")
+
+# Comando /menu
+async def menu(update: Update, context: CallbackContext):
+    botoes = [
+        [InlineKeyboardButton("✅ Iniciar Análises", callback_data='start')],
+        [InlineKeyboardButton("🛑 Parar Análises", callback_data='stop')],
+        [InlineKeyboardButton("📊 Análise Agora", callback_data='agora')],
+        [InlineKeyboardButton("➕ Adicionar Cripto", callback_data='add')],
+        [InlineKeyboardButton("➖ Remover Cripto", callback_data='remove')],
+    ]
+    await update.message.reply_text("📍 Menu de Comandos:", reply_markup=InlineKeyboardMarkup(botoes))
+
+# Callback interativo
+def callback_handler(update: Update, context: CallbackContext):
+    query = update.callback_query
+    query.answer()
+    if query.data == 'start':
+        global analise_ativa
+        analise_ativa = True
+        query.edit_message_text("✅ Análises ativadas.")
+    elif query.data == 'stop':
+        analise_ativa = False
+        query.edit_message_text("🛑 Análises pausadas.")
+    elif query.data == 'agora':
+        query.edit_message_text("⏳ Gerando análise...")
+        asyncio.create_task(analisar_todas(context.bot))
+    elif query.data == 'add':
+        context.bot.send_message(chat_id=query.message.chat_id, text="Digite o símbolo da cripto para adicionar (ex: XRP-USDT):")
+        context.user_data['modo'] = 'adicionar'
+    elif query.data == 'remove':
+        context.bot.send_message(chat_id=query.message.chat_id, text="Digite o símbolo da cripto para remover (ex: ETH-USDT):")
+        context.user_data['modo'] = 'remover'
+
+# Texto após /add ou /remove
+def mensagem_texto(update: Update, context: CallbackContext):
+    texto = update.message.text.upper()
+    if 'modo' in context.user_data:
+        if context.user_data['modo'] == 'adicionar':
+            if texto not in CRIPTO_LISTA:
+                CRIPTO_LISTA.append(texto)
+                update.message.reply_text(f"✅ {texto} adicionado à lista.")
+            else:
+                update.message.reply_text(f"⚠️ {texto} já está na lista.")
+        elif context.user_data['modo'] == 'remover':
+            if texto in CRIPTO_LISTA:
+                CRIPTO_LISTA.remove(texto)
+                update.message.reply_text(f"❌ {texto} removido da lista.")
+            else:
+                update.message.reply_text(f"⚠️ {texto} não encontrado na lista.")
+        del context.user_data['modo']
+    else:
+        update.message.reply_text("❓ Comando não reconhecido. Use /menu.")
+
+# Inicialização
 if __name__ == '__main__':
-    import asyncio
-    app = ApplicationBuilder().token(TOKEN).build()
-    app.add_handler(CommandHandler('start', start))
-    app.add_handler(CommandHandler('stop', stop))
-    app.add_handler(CommandHandler('agora', agora))
-    app.add_handler(CommandHandler('lista', lista))
-    app.add_handler(CommandHandler('add', add))
-    app.add_handler(CommandHandler('remove', remove))
-    threading.Thread(target=agendar, args=(app,), daemon=True).start()
-    print("✅ Bot rodando...")
+    app = Application.builder().token(TOKEN).build()
+
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("menu", menu))
+    app.add_handler(CallbackQueryHandler(callback_handler))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, mensagem_texto))
+
+    app.create_task(loop_analise(app))
     app.run_polling()
