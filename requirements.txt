@@ -1,11 +1,6 @@
-streamlit
-pandas
-numpy
+python-telegram-bot==13.15
+ta
 matplotlib
-scikit-learn
-tensorflow
-beautifulsoup4
-vaderSentiment
-schedule
-python-telegram-bot
+pandas
 requests
+schedule
