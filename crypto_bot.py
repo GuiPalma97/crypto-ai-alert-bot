@@ -11,14 +11,14 @@ from ta.volatility import BollingerBands
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, CallbackQueryHandler,
-    ContextTypes
+    ContextTypes, MessageHandler, filters
 )
 import joblib
 from sklearn.tree import DecisionTreeClassifier  # só pra type hint, o treino fica separado
 
 # --- Configurações ---
-TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
-CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
+TOKEN = os.getenv('TELEGRAM_BOT_TOKEN') or '8123262775:AAHEv43aS9dK8jXSjINqhDXbqxlHAfn4aTw'
+CHAT_ID = os.getenv('TELEGRAM_CHAT_ID') or '7657570667'
 
 CRIPTO_LISTA = ['BTC-USDT', 'ETH-USDT', 'SOL-USDT', 'LDO-USDT', 'AAVE-USDT']
 INTERVALO = '1hour'  # '1min', '5min', '1hour', '1day', '1week'
@@ -136,7 +136,7 @@ async def insights(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
         await update.message.reply_text("❗ Use o comando com o par desejado. Exemplo:\n/insights BTC-USDT")
         return
-    
+
     par = context.args[0].upper()
     if par not in CRIPTO_LISTA:
         await update.message.reply_text(f"⚠️ {par} não está na lista. Use /add para adicioná-la primeiro.")
@@ -182,7 +182,6 @@ async def insights(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     variacao_ultimo = ((df['close'].iloc[-1] - df['close'].iloc[-2]) / df['close'].iloc[-2]) * 100
 
-    # Prever recomendação com modelo ML, se disponível
     recomendacao = "Modelo ML não disponível."
     if modelo is not None:
         features = [[
@@ -214,7 +213,46 @@ async def insights(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_photo(photo=open(grafico_path, 'rb'), caption=texto, parse_mode='Markdown')
 
-# --- Comandos para iniciar/parar análise agendada ---
+# --- Comandos adicionais ---
+async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global CRIPTO_LISTA
+    if not context.args:
+        await update.message.reply_text("❗ Use /add seguido do par. Exemplo: /add XRP-USDT")
+        return
+
+    par = context.args[0].upper()
+    if par in CRIPTO_LISTA:
+        await update.message.reply_text(f"⚠️ {par} já está na lista de análise.")
+    else:
+        CRIPTO_LISTA.append(par)
+        await update.message.reply_text(f"✅ {par} adicionado à lista de análise.")
+
+async def remove(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global CRIPTO_LISTA
+    if not context.args:
+        await update.message.reply_text("❗ Use /remove seguido do par. Exemplo: /remove SOL-USDT")
+        return
+
+    par = context.args[0].upper()
+    if par in CRIPTO_LISTA:
+        CRIPTO_LISTA.remove(par)
+        await update.message.reply_text(f"✅ {par} removido da lista de análise.")
+    else:
+        await update.message.reply_text(f"⚠️ {par} não está na lista.")
+
+async def interval(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global INTERVALO
+    if not context.args:
+        await update.message.reply_text("⏱ Intervalo atual: " + INTERVALO)
+        return
+
+    novo = context.args[0]
+    if novo not in ['1min', '5min', '1hour', '1day', '1week']:
+        await update.message.reply_text("⚠️ Intervalo inválido. Use: 1min, 5min, 1hour, 1day ou 1week.")
+    else:
+        INTERVALO = novo
+        await update.message.reply_text(f"✅ Intervalo alterado para {INTERVALO}.")
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global analise_ativa
     if analise_ativa:
@@ -252,8 +290,10 @@ async def main():
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("stop", stop))
     application.add_handler(CommandHandler("insights", insights))
+    application.add_handler(CommandHandler("add", add))
+    application.add_handler(CommandHandler("remove", remove))
+    application.add_handler(CommandHandler("interval", interval))
 
-    # Roda o agendador em thread paralela para não travar o bot
     threading.Thread(target=agendar_analise, args=(application,), daemon=True).start()
 
     print("Bot iniciado...")
@@ -262,3 +302,4 @@ async def main():
 if __name__ == "__main__":
     import asyncio
     asyncio.run(main())
+
